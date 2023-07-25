@@ -1,5 +1,7 @@
 import * as THREE from 'three';
-import { getBoundarybox } from '../getBoundary';
+import { getBoundarybox, geometryCenter } from '../tool/getBoundary';
+import { computeProjectPointOnPlane } from '../tool/getPlaneProjection';
+
 class CutPlaneControl {
     constructor(camera, scene, domElement) {
         this._camera = camera;
@@ -17,9 +19,10 @@ class CutPlaneControl {
         this.selectionLine = new THREE.Line();
 
         this.planeSize = 100;
+        this.meshCenter = null;
         this.planeName = 'sectionPlane';
-        this.planeNormal = new THREE.Vector3(0, 0, -Infinity);
-        this.planePoint = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+        this.planeNormal = null;
+        this.planePoint = null;
 
         this.addSelectionLine();
         this.addEvents();
@@ -27,7 +30,11 @@ class CutPlaneControl {
 
     setPlaneSize = (geometry, matrix) => {
         let box = getBoundarybox(geometry, matrix);
-        if (box) this.planeSize = box.max.distanceTo(box.min) + 2;
+        let center = geometryCenter(geometry, matrix);
+        if (box) {
+            this.planeSize = box.max.distanceTo(box.min) + 0.5;
+            this.meshCenter = center.clone();
+        }
     }
 
     addEvents = () => {
@@ -61,18 +68,18 @@ class CutPlaneControl {
     }
 
     pointerdown = (e) => {
-        this.startX = (e.clientX / window.innerWidth) * 2 - 1;
-        this.startY = - ((e.clientY / window.innerHeight) * 2 - 1);
+        this.startX = (e.clientX / this._domElement.clientWidth) * 2 - 1;
+        this.startY = - ((e.clientY / this._domElement.clientHeight) * 2 - 1);
         this.dragging = true;
     }
 
-    pointerup = () => {
+    pointerup = (e) => {
         this.selectionLine.visible = false;
         this.dragging = false;
         this.removePlane();
         this.createPlane();
-        console.log('normal',  this.planeNormal );
-        console.log('point',  this.planePoint );
+        console.log('normal', this.planeNormal);
+        console.log('point', this.planePoint);
     }
 
     pointermove = (e) => {
@@ -80,9 +87,10 @@ class CutPlaneControl {
         if ((1 & e.buttons) === 0) return;
 
         let camera = this._camera;
+        camera.updateProjectionMatrix();
 
-        this.endX = (e.clientX / window.innerWidth) * 2 - 1;
-        this.endY = - ((e.clientY / window.innerHeight) * 2 - 1);
+        this.endX = (e.clientX / this._domElement.clientWidth) * 2 - 1;
+        this.endY = - ((e.clientY / this._domElement.clientHeight) * 2 - 1);
 
         let worldStart = new THREE.Vector3(this.startX, this.startY, 0);
         let worldEnd = new THREE.Vector3(this.endX, this.endY, 0);
@@ -102,29 +110,36 @@ class CutPlaneControl {
 
     computePlaneParameter = (startPoint, endPoint) => {
         let camera = this._camera;
+        camera.updateProjectionMatrix();
 
-        let rotationMatrix = new THREE.Matrix4().extractRotation(camera.matrix);
+        let rotationMatrix = new THREE.Matrix4().extractRotation(camera.matrixWorld);
 
         let worldStartPoint = startPoint.applyMatrix4(rotationMatrix);
         let worldEndPoint = endPoint.applyMatrix4(rotationMatrix);
 
         let tangent = worldStartPoint.clone().sub(worldEndPoint);
+        tangent.normalize();
         let eyeVector = new THREE.Vector3(camera.matrixWorld.elements[8], camera.matrixWorld.elements[9], camera.matrixWorld.elements[10]);
         eyeVector.normalize();
 
         this.planeNormal = tangent.clone().cross(eyeVector).normalize();
-        this.planePoint = startPoint.clone().add(endPoint).multiplyScalar(0.5);
+        this.planePoint = worldStartPoint.clone();
     }
 
     createPlane = () => {
+        if (!this.planeNormal) return;
+        if (!this.planePoint) return;
         const originPlaneNormal = new THREE.Vector3(0, 0, 1);
 
         let quaternion = new THREE.Quaternion().setFromUnitVectors(originPlaneNormal, this.planeNormal);
         let matrix = new THREE.Matrix4().makeRotationFromQuaternion(quaternion);
-        matrix.setPosition(this.planePoint);
 
-        const geometry = new THREE.BoxGeometry(this.planeSize, this.planeSize, 0.07);
-        const material = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.2});
+        let point = computeProjectPointOnPlane(this.planeNormal, this.planePoint, this.meshCenter);
+
+        matrix.setPosition(point);
+
+        const geometry = new THREE.BoxGeometry(this.planeSize, this.planeSize, 0.05);
+        const material = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.2 });
         const plane = new THREE.Mesh(geometry, material);
 
         plane.matrix = matrix;
