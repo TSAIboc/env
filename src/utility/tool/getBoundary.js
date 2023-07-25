@@ -29,7 +29,7 @@ export const getBoundarybox = (geometry, matrix = new Matrix4()) => {
     return box;
 }
 
-export const geometryCenter = (geometry, matrix = new Matrix4()) => {
+export const getGeometryCenter = (geometry, matrix = new Matrix4()) => {
     let position = geometry.getAttribute('position');
     if (!position) {
         return null;
