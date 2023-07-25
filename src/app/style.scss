@@ -1,0 +1,29 @@
+.head {
+    position: absolute;
+    bottom: 20px;
+    left: calc(50% - 80px);
+    font-size: 16px;
+    font-weight: 600;
+    font-family: math;
+}
+
+.canvas {
+    display: flex;
+    align-items: center;
+    font-size: 25px;
+    width: 100vw;
+    height: 100vh;
+}
+
+@media screen and (max-height: 600px) {
+    .controller {
+        right: 60px;
+        bottom: 80px;
+    }
+}
+
+@media screen and (max-width: 730px) and (max-height: 600px) {
+    .controller {
+        right: 0px;
+    }
+}
