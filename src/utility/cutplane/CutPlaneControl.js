@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { Vector3, EventDispatcher, Line, Float32BufferAttribute, Matrix4, Quaternion, BoxGeometry, MeshBasicMaterial, Mesh } from 'three';
 import { getBoundarybox, getGeometryCenter } from '../tool/getBoundary';
 import { computeProjectPointOnPlane } from '../tool/getPlaneProjection';
 import { isNumber } from 'mathjs';
@@ -7,11 +7,17 @@ import { isNumber } from 'mathjs';
  * Using mouse left button to draw a line on screen and crate a section plane on scene
  * plane parameter : a point on plane and plane normal vector 
  */
-class CutPlaneControl {
+class CutPlaneControl extends EventDispatcher {
     constructor(camera, scene, domElement) {
+        super();
         this._camera = camera;
         this._scene = scene;
         this._domElement = domElement;
+
+        if (domElement === undefined) {
+            console.warn('CutPlaneControl: The third parameter "domElement" is now mandatory.');
+            this._domElement = document;
+        }
 
         this.startX = -Infinity;
         this.startY = -Infinity;
@@ -21,10 +27,10 @@ class CutPlaneControl {
 
         this.dragging = false;
 
-        this.sectionLine = new THREE.Line();
+        this.sectionLine = new Line();
 
         this.planeSize = 100;
-        this.meshCenter = null;
+        this.meshCenter = new Vector3();
         this.planeName = 'sectionPlane';
         this.planeNormal = null;
         this.planePoint = null;
@@ -67,23 +73,25 @@ class CutPlaneControl {
     }
 
     addEvents = () => {
-        if (!this._domElement) return;
         this._domElement.addEventListener('pointerdown', this.onPointerdown);
         this._domElement.addEventListener('pointerup', this.onPointerup);
         this._domElement.addEventListener('pointermove', this.onPointermove);
     }
 
     removeEvents = () => {
-        if (!this._domElement) return;
         this._domElement.removeEventListener('pointerdown', this.onPointerdown);
         this._domElement.removeEventListener('pointerup', this.onPointerup);
         this._domElement.removeEventListener('pointermove', this.onPointermove);
     }
 
-    destroy = () => {
+    dispose = () => {
         this.removeEvents();
         this.removePlane();
-        this.sectionLine = undefined;
+        if (this.sectionLine) {
+            if (this.sectionLine.geometry) this.sectionLine.geometry.dispose();
+            if (this.sectionLine.material) this.sectionLine.material.dispose();
+            this._camera.remove(this.sectionLine);
+        }
     }
 
     //draw line on camera
@@ -112,6 +120,7 @@ class CutPlaneControl {
         this.sectionLine.visible = false;
         this.removePlane();
         this.createPlane();
+        this.sendPointerUpDispatchEvent();
     }
 
     onPointermove = (e) => {
@@ -125,8 +134,8 @@ class CutPlaneControl {
         this.endX = (e.clientX / this._domElement.clientWidth) * 2 - 1;
         this.endY = - ((e.clientY / this._domElement.clientHeight) * 2 - 1);
 
-        let worldStart = new THREE.Vector3(this.startX, this.startY, 0);
-        let worldEnd = new THREE.Vector3(this.endX, this.endY, 0);
+        let worldStart = new Vector3(this.startX, this.startY, 0);
+        let worldEnd = new Vector3(this.endX, this.endY, 0);
 
         //screen to world matrix
         worldStart.applyMatrix4(camera.projectionMatrixInverse);
@@ -135,7 +144,7 @@ class CutPlaneControl {
         //update sectionLine
         this.sectionLine.geometry.setAttribute(
             'position',
-            new THREE.Float32BufferAttribute([worldStart.x, worldStart.y, worldStart.z, worldEnd.x, worldEnd.y, worldEnd.z], 3, false)
+            new Float32BufferAttribute([worldStart.x, worldStart.y, worldStart.z, worldEnd.x, worldEnd.y, worldEnd.z], 3, false)
         );
         this.sectionLine.visible = true;
 
@@ -148,7 +157,7 @@ class CutPlaneControl {
         camera.updateProjectionMatrix();
 
         //points rotated by camera world matrix (mouse control to change view angle)
-        let rotationMatrix = new THREE.Matrix4().extractRotation(camera.matrixWorld);
+        let rotationMatrix = camera.matrixWorld;
 
         let worldStartPoint = startPoint.applyMatrix4(rotationMatrix);
         let worldEndPoint = endPoint.applyMatrix4(rotationMatrix);
@@ -156,7 +165,7 @@ class CutPlaneControl {
         //tangent cross eyeVector to get plane normal
         let tangent = worldStartPoint.clone().sub(worldEndPoint);
         tangent.normalize();
-        let eyeVector = new THREE.Vector3(camera.matrixWorld.elements[8], camera.matrixWorld.elements[9], camera.matrixWorld.elements[10]);
+        let eyeVector = new Vector3(camera.matrixWorld.elements[8], camera.matrixWorld.elements[9], camera.matrixWorld.elements[10]);
         eyeVector.normalize();
 
         this.planeNormal = tangent.clone().cross(eyeVector).normalize();
@@ -166,19 +175,19 @@ class CutPlaneControl {
     createPlane = () => {
         if (!this.planeNormal) return;
         if (!this.planePoint) return;
-        const originPlaneNormal = new THREE.Vector3(0, 0, 1);
+        const originPlaneNormal = new Vector3(0, 0, 1);
 
         //rotate plane from origin to sectionLine normal vector
-        let quaternion = new THREE.Quaternion().setFromUnitVectors(originPlaneNormal, this.planeNormal);
-        let matrix = new THREE.Matrix4().makeRotationFromQuaternion(quaternion);
+        let quaternion = new Quaternion().setFromUnitVectors(originPlaneNormal, this.planeNormal);
+        let matrix = new Matrix4().makeRotationFromQuaternion(quaternion);
 
         //move plane position to mesh center projected point on plane
         let point = computeProjectPointOnPlane(this.planeNormal, this.planePoint, this.meshCenter);
         matrix.setPosition(point);
 
-        const geometry = new THREE.BoxGeometry(this.planeSize, this.planeSize, 0.05); //create a thinness plane
-        const material = new THREE.MeshBasicMaterial({ color: this.sectionPlaneColor, transparent: true, opacity: 0.2 });
-        const plane = new THREE.Mesh(geometry, material);
+        const geometry = new BoxGeometry(this.planeSize, this.planeSize, 0.05); //create a thinness plane
+        const material = new MeshBasicMaterial({ color: this.sectionPlaneColor, transparent: true, opacity: 0.2 });
+        const plane = new Mesh(geometry, material);
 
         plane.matrix = matrix;
         plane.matrixAutoUpdate = false;
@@ -192,9 +201,22 @@ class CutPlaneControl {
         let scene = this._scene;
         let object = scene.getObjectByName(this.planeName);
         if (object) {
-            object.geometry.dispose();
+            if (object.geometry) object.geometry.dispose();
+            if (object.material) object.material.dispose();
             scene.remove(object);
         }
+    }
+
+    //it can also use 'getPlaneParameter' to get the parameter depend on situation
+    sendPointerUpDispatchEvent = () => {
+        const event = {
+            type: 'update-plane-parameter',
+            message: {
+                'point': this.planePoint,
+                'normal': this.planeNormal,
+            }
+        }
+        this.dispatchEvent(event);
     }
 }
 
