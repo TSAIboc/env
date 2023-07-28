@@ -9,6 +9,8 @@ class CutPlaneAction {
         this._editor = null;
         this._geometry = null;
         this._mesh = null;
+
+        this._planeControl = null;
     }
 
     get model() { return this._geometry }
@@ -27,9 +29,11 @@ class CutPlaneAction {
 
             const { camera, scene, container } = this._editor;
             if (camera && scene && container) {
-                const planeControl = new CutPlaneControl(camera, scene, container);
+
+                if(!this._planeControl)
+                    this._planeControl = new CutPlaneControl(camera, scene, container);
                 if (this._mesh) {
-                    planeControl.setPlaneSize(geometry, this._mesh.matrix);
+                    this._planeControl.setPlane( { geometry : geometry, matrix : this._mesh.matrix} , 0xFFA41E);
                     if (callback) callback(this._mesh);
                 }
             }
@@ -42,10 +46,11 @@ class CutPlaneAction {
     _addScene = () => {
         if (!this._editor || !this._geometry) return;
         const { scene } = this._editor;
-        const material = new THREE.MeshStandardMaterial({
-            color: 0xF8A277,
+        const material = new THREE.MeshPhongMaterial({
+            color: 0xc84c4c,
+            specular: 0x9b5e55,
             side: THREE.DoubleSide,
-            roughness: 0.4,
+            roughness: 0.2,
         });
         this._mesh = new THREE.Mesh(this._geometry, material);
         scene.add(this._mesh);
